@@ -1,4 +1,6 @@
-{{- if .Values.monitoring.enabled }}
+{{- $monitoring := .Values.monitoring | default dict }}
+{{- $serviceMonitor := $monitoring.serviceMonitor | default dict }}
+{{- if ($monitoring.enabled | default false) }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -17,6 +19,6 @@ spec:
   endpoints:
     - port: http
       path: /metrics
-      interval: {{ .Values.monitoring.serviceMonitor.interval }}
-      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
+      interval: {{ $serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ $serviceMonitor.scrapeTimeout | default "10s" }}
 {{- end }}

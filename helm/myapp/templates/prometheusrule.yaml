@@ -1,0 +1,83 @@
+{{- $alerts := .Values.alerts | default dict }}
+{{- if ($alerts.enabled | default false) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "myapp.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    {{- include "myapp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alerting
+    release: monitoring
+spec:
+  groups:
+    - name: {{ include "myapp.fullname" . }}.availability
+      rules:
+        - alert: GitOpsDemoAppUnavailable
+          expr: kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ include "myapp.fullname" . }}"} < 1
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+            service: {{ include "myapp.fullname" . }}
+          annotations:
+            summary: "GitOps demo app has no available replicas"
+            description: "Deployment {{ include "myapp.fullname" . }} in namespace {{ .Release.Namespace }} has less than 1 available replica for more than 1 minute."
+
+        - alert: GitOpsDemoAppReplicasMismatch
+          expr: kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}", deployment="{{ include "myapp.fullname" . }}"} < kube_deployment_spec_replicas{namespace="{{ .Release.Namespace }}", deployment="{{ include "myapp.fullname" . }}"}
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+            service: {{ include "myapp.fullname" . }}
+          annotations:
+            summary: "GitOps demo app desired replicas are not available"
+            description: "Deployment {{ include "myapp.fullname" . }} desired replicas are not fully available for more than 2 minutes."
+
+    - name: {{ include "myapp.fullname" . }}.runtime
+      rules:
+        - alert: GitOpsDemoAppPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}", pod=~"{{ include "myapp.fullname" . }}-.*", container!="", container!="POD"}[10m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+            service: {{ include "myapp.fullname" . }}
+          annotations:
+            summary: "GitOps demo app pod restarted"
+            description: "A pod for {{ include "myapp.fullname" . }} restarted in namespace {{ .Release.Namespace }} during the last 10 minutes."
+
+        - alert: GitOpsDemoAppTargetDown
+          expr: up{namespace="{{ .Release.Namespace }}", pod=~"{{ include "myapp.fullname" . }}-.*"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+            service: {{ include "myapp.fullname" . }}
+          annotations:
+            summary: "GitOps demo app Prometheus target is down"
+            description: "Prometheus cannot scrape one or more {{ include "myapp.fullname" . }} targets in namespace {{ .Release.Namespace }}."
+
+    - name: {{ include "myapp.fullname" . }}.http
+      rules:
+        - alert: GitOpsDemoAppHigh5xxRate
+          expr: |
+            (
+              sum(rate(gitops_demo_app_http_requests_total{namespace="{{ .Release.Namespace }}", status_code=~"5.."}[5m]))
+              /
+              sum(rate(gitops_demo_app_http_requests_total{namespace="{{ .Release.Namespace }}"}[5m]))
+            ) > 0.05
+            and
+            sum(rate(gitops_demo_app_http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+            service: {{ include "myapp.fullname" . }}
+          annotations:
+            summary: "GitOps demo app has high 5xx error rate"
+            description: "More than 5% of HTTP requests for {{ include "myapp.fullname" . }} are returning 5xx errors over the last 5 minutes."
+{{- end }}

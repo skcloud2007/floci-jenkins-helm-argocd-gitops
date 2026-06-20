@@ -50,3 +50,12 @@ smokeTest:
   retryCount: 10
   retryDelaySeconds: 3
   timeoutSeconds: 5
+
+alerts:
+  enabled: true
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    interval: 30s
+    scrapeTimeout: 10s
