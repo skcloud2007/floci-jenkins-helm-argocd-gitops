@@ -99,14 +99,16 @@ spec:
     stage('Update Helm Values') {
       steps {
         container('tools') {
-          sh '''
-            apk add --no-cache git yq
+          dir("${WORKSPACE}") {}}")
+            sh '''
+              apk add --no-cache git yq
 
-            yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
+              yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
 
-            echo "Updated values.yaml:"
-            grep -A 4 '^image:' helm/myapp/values.yaml
-          '''
+              echo "Updated values.yaml:"
+              grep -A 4 '^image:' helm/myapp/values.yaml
+            '''
+          }
         }
       }
     }
@@ -114,29 +116,30 @@ spec:
     stage('Commit GitOps Change') {
       steps {
         container('tools') {
-          withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
-            sh '''
-              git config user.email "jenkins@example.local"
-              git config user.name "Jenkins CI"
+          dir("${WORKSPACE}") {
+            withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
+              sh '''
+                git config user.email "jenkins@example.local"
+                git config user.name "Jenkins CI"
 
-              git status
+                git status
 
-              if git diff --quiet; then
-                echo "No GitOps changes to commit."
-                exit 0
-              fi
+                if git diff --quiet; then
+                  echo "No GitOps changes to commit."
+                  exit 0
+                fi
 
-              git add helm/myapp/values.yaml
-              git commit -m "ci: deploy ${IMAGE_TAG}"
+                git add helm/myapp/values.yaml
+                git commit -m "ci: deploy ${IMAGE_TAG}"
 
-              git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git"
-              git push origin HEAD:main
-            '''
+                git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git"
+                git push origin HEAD:main
+              '''s
+            }
           }
         }
       }
     }
-  }
 
   post {
     success {
