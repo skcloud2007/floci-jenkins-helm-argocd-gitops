@@ -56,7 +56,7 @@ spec:
     APP_NAME = 'gitops-demo-app'
     CHART_PATH = 'helm/myapp'
     GITHUB_REPO = 'skcloud2007/floci-jenkins-helm-argocd-gitops'
-    GIT_BRANCH = 'main'
+    GIT_BRANCH_NAME = 'main'
     SKIP_PIPELINE = 'false'
   }
 
@@ -73,7 +73,7 @@ spec:
           dir("${WORKSPACE}") {
             script {
               sh '''
-                apk add --no-cache git
+                apk add --no-cache git >/dev/null
                 git config --global --add safe.directory "${WORKSPACE}"
               '''
 
@@ -105,13 +105,16 @@ spec:
         container('tools') {
           dir("${WORKSPACE}") {
             script {
-              def shortCommit = sh(
+              env.GIT_COMMIT_SHORT = sh(
                 script: "git rev-parse --short HEAD",
                 returnStdout: true
               ).trim()
 
-              env.IMAGE_TAG = "build-${env.BUILD_NUMBER}-${shortCommit}"
+              env.IMAGE_TAG = "build-${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+              env.IMAGE_URI = "${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+
               echo "Image tag: ${env.IMAGE_TAG}"
+              echo "Image URI: ${env.IMAGE_URI}"
             }
           }
         }
@@ -129,7 +132,7 @@ spec:
               /kaniko/executor \
                 --context "${WORKSPACE}/app" \
                 --dockerfile "${WORKSPACE}/app/Dockerfile" \
-                --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                --destination "${IMAGE_URI}" \
                 --insecure \
                 --skip-tls-verify \
                 --cache=false
@@ -163,7 +166,7 @@ spec:
         container('tools') {
           dir("${WORKSPACE}") {
             sh '''
-              apk add --no-cache yq
+              apk add --no-cache yq >/dev/null
 
               yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
 
@@ -184,7 +187,7 @@ spec:
           dir("${WORKSPACE}") {
             withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
               sh '''
-                apk add --no-cache git yq
+                apk add --no-cache git yq >/dev/null
 
                 echo "Current directory:"
                 pwd
@@ -201,8 +204,8 @@ spec:
 
                   git init
                   git remote add origin "https://x-access-token:${GH_APP_TOKEN}@github.com/${GITHUB_REPO}.git"
-                  git fetch origin "${GIT_BRANCH}"
-                  git checkout -B "${GIT_BRANCH}" "origin/${GIT_BRANCH}"
+                  git fetch origin "${GIT_BRANCH_NAME}"
+                  git checkout -B "${GIT_BRANCH_NAME}" "origin/${GIT_BRANCH_NAME}"
 
                   echo "Reapplying image tag after checkout:"
                   yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
@@ -221,7 +224,7 @@ spec:
 
                 git add helm/myapp/values.yaml
                 git commit -m "ci: deploy ${IMAGE_TAG} [skip ci]"
-                git push origin HEAD:"${GIT_BRANCH}"
+                git push origin HEAD:"${GIT_BRANCH_NAME}"
               '''
             }
           }
@@ -232,10 +235,60 @@ spec:
 
   post {
     success {
-      echo "Pipeline completed successfully."
+      script {
+        if (env.SKIP_PIPELINE == 'true') {
+          echo "Pipeline skipped for Jenkins GitOps deploy commit. No Slack notification sent."
+        } else {
+          container('tools') {
+            dir("${WORKSPACE}") {
+              withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_WEBHOOK_URL')]) {
+                sh '''
+                  apk add --no-cache curl >/dev/null
+
+                  cat > /tmp/slack-payload.json <<EOF
+{
+  "text": ":white_check_mark: *Jenkins GitOps deployment succeeded*\\n*Job:* ${JOB_NAME}\\n*Build:* #${BUILD_NUMBER}\\n*Branch:* ${GIT_BRANCH_NAME}\\n*Commit:* ${GIT_COMMIT_SHORT}\\n*Image:* ${IMAGE_URI}\\n*Argo CD App:* gitops-demo-app\\n*App URL:* http://myapp.127.0.0.1.nip.io\\n*Build URL:* ${BUILD_URL}"
+}
+EOF
+
+                  curl -sS -X POST \
+                    -H 'Content-type: application/json' \
+                    --data @/tmp/slack-payload.json \
+                    "${SLACK_WEBHOOK_URL}" || true
+                '''
+              }
+            }
+          }
+        }
+      }
     }
+
     failure {
-      echo "Pipeline failed. Check Jenkins stage logs."
+      script {
+        container('tools') {
+          dir("${WORKSPACE}") {
+            withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_WEBHOOK_URL')]) {
+              sh '''
+                apk add --no-cache curl >/dev/null
+
+                IMAGE_VALUE="${IMAGE_URI:-not-created-yet}"
+                COMMIT_VALUE="${GIT_COMMIT_SHORT:-unknown}"
+
+                cat > /tmp/slack-payload.json <<EOF
+{
+  "text": ":x: *Jenkins GitOps pipeline failed*\\n*Job:* ${JOB_NAME}\\n*Build:* #${BUILD_NUMBER}\\n*Branch:* ${GIT_BRANCH_NAME}\\n*Commit:* ${COMMIT_VALUE}\\n*Image:* ${IMAGE_VALUE}\\n*Build URL:* ${BUILD_URL}"
+}
+EOF
+
+                curl -sS -X POST \
+                  -H 'Content-type: application/json' \
+                  --data @/tmp/slack-payload.json \
+                  "${SLACK_WEBHOOK_URL}" || true
+              '''
+            }
+          }
+        }
+      }
     }
   }
 }
