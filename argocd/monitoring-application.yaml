@@ -48,9 +48,13 @@ spec:
             scrapeInterval: 30s
             evaluationInterval: 30s
             serviceMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorNamespaceSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
+            podMonitorNamespaceSelectorNilUsesHelmValues: false
             ruleSelectorNilUsesHelmValues: false
+            ruleNamespaceSelectorNilUsesHelmValues: false
             probeSelectorNilUsesHelmValues: false
+            probeNamespaceSelectorNilUsesHelmValues: false
 
         alertmanager:
           enabled: true
