@@ -51,6 +51,8 @@ spec:
     IMAGE_REPOSITORY = 'host.docker.internal:5100/floci-cicd/gitops-demo-app'
     APP_NAME = 'gitops-demo-app'
     CHART_PATH = 'helm/myapp'
+    GITHUB_REPO = 'skcloud2007/floci-jenkins-helm-argocd-gitops'
+    GIT_BRANCH = 'main'
   }
 
   stages {
@@ -105,7 +107,7 @@ spec:
         container('tools') {
           dir("${WORKSPACE}") {
             sh '''
-              apk add --no-cache git yq
+              apk add --no-cache yq
 
               yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
 
@@ -123,11 +125,34 @@ spec:
           dir("${WORKSPACE}") {
             withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
               sh '''
-                apk add --no-cache git
+                apk add --no-cache git yq
 
-                git config user.email "jenkins@example.local"
-                git config user.name "Jenkins CI"
+                echo "Current directory:"
+                pwd
 
+                echo "Workspace content:"
+                ls -la
+
+                git config --global user.email "jenkins@example.local"
+                git config --global user.name "Jenkins CI"
+                git config --global --add safe.directory "${WORKSPACE}"
+
+                if [ ! -d .git ]; then
+                  echo "No .git directory found. Reinitializing repository metadata."
+
+                  git init
+                  git remote add origin "https://x-access-token:${GH_APP_TOKEN}@github.com/${GITHUB_REPO}.git"
+                  git fetch origin "${GIT_BRANCH}"
+                  git checkout -B "${GIT_BRANCH}" "origin/${GIT_BRANCH}"
+
+                  echo "Reapplying image tag after checkout:"
+                  yq -i '.image.tag = strenv(IMAGE_TAG)' helm/myapp/values.yaml
+                else
+                  echo ".git directory found."
+                  git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/${GITHUB_REPO}.git"
+                fi
+
+                echo "Git status:"
                 git status
 
                 if git diff --quiet; then
@@ -137,9 +162,7 @@ spec:
 
                 git add helm/myapp/values.yaml
                 git commit -m "ci: deploy ${IMAGE_TAG}"
-
-                git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git"
-                git push origin HEAD:main
+                git push origin HEAD:"${GIT_BRANCH}"
               '''
             }
           }
