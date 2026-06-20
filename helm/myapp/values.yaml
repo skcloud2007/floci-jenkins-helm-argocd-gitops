@@ -1,7 +1,7 @@
 replicaCount: 2
 image:
   repository: host.docker.internal:5100/floci-cicd/gitops-demo-app
-  tag: build-9-0de5981
+  tag: build-10-c95625a
   pullPolicy: IfNotPresent
 serviceAccount:
   create: true
