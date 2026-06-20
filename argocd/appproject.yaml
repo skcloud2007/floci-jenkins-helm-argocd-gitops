@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-demo
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: gitops-demo
+    app.kubernetes.io/part-of: floci-jenkins-helm-argocd-gitops
+spec:
+  description: Production-style GitOps project for Jenkins, Floci ECR, Helm, and Argo CD demo
+
+  sourceRepos:
+    - https://github.com/skcloud2007/floci-jenkins-helm-argocd-gitops
+    - https://github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: myapp
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  orphanedResources:
+    warn: true

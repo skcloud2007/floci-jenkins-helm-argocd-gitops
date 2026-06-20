@@ -44,3 +44,10 @@ probes:
     path: /healthz
     initialDelaySeconds: 10
     periodSeconds: 20
+
+smokeTest:
+  enabled: true
+  image: curlimages/curl:8.11.1
+  retryCount: 10
+  retryDelaySeconds: 3
+  timeoutSeconds: 5

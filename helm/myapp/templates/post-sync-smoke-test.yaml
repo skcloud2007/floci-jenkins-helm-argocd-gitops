@@ -1,0 +1,54 @@
+{{- if .Values.smokeTest.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "myapp.fullname" . }}-smoke-test
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    {{- include "myapp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smoke-test
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "myapp.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: smoke-test
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: smoke-test
+          image: {{ .Values.smokeTest.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              echo "Running Argo CD PostSync smoke test..."
+              echo "Target: http://{{ include "myapp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/healthz"
+
+              curl \
+                --fail \
+                --show-error \
+                --silent \
+                --retry {{ .Values.smokeTest.retryCount }} \
+                --retry-delay {{ .Values.smokeTest.retryDelaySeconds }} \
+                --max-time {{ .Values.smokeTest.timeoutSeconds }} \
+                "http://{{ include "myapp.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/healthz"
+
+              echo
+              echo "Smoke test passed."
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

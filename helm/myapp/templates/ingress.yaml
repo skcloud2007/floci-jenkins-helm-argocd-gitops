@@ -4,6 +4,8 @@ kind: Ingress
 metadata:
   name: {{ include "myapp.fullname" . }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   labels:
     {{- include "myapp.labels" . | nindent 4 }}
 spec:
