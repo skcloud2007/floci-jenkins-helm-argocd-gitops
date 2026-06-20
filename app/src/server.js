@@ -7,7 +7,7 @@ const version = process.env.APP_VERSION || "local";
 app.get("/", (_req, res) => {
   res.json({
     app: "gitops-demo-app",
-    message: "Hello from automated Jenkins GitOps deployment",
+    message: "Hello from Argo CD Slack notification verified",
     version,
     status: "running"
   });
