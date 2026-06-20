@@ -1,7 +1,7 @@
 replicaCount: 2
 image:
   repository: host.docker.internal:5100/floci-cicd/gitops-demo-app
-  tag: build-23-d5efd94
+  tag: build-24-c68d7c3
   pullPolicy: IfNotPresent
 serviceAccount:
   create: true
@@ -44,7 +44,6 @@ probes:
     path: /healthz
     initialDelaySeconds: 10
     periodSeconds: 20
-
 smokeTest:
   enabled: true
   image: curlimages/curl:8.11.1
