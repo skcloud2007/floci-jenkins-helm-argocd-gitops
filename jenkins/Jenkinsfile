@@ -99,7 +99,7 @@ spec:
     stage('Update Helm Values') {
       steps {
         container('tools') {
-          dir("${WORKSPACE}") {}}")
+          dir("${WORKSPACE}") {
             sh '''
               apk add --no-cache git yq
 
