@@ -114,7 +114,7 @@ spec:
     stage('Commit GitOps Change') {
       steps {
         container('tools') {
-          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_TOKEN')]) {
+          withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
             sh '''
               git config user.email "jenkins@example.local"
               git config user.name "Jenkins CI"
@@ -129,7 +129,7 @@ spec:
               git add helm/myapp/values.yaml
               git commit -m "ci: deploy ${IMAGE_TAG}"
 
-              git remote set-url origin "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/${GIT_USERNAME}/floci-jenkins-helm-argocd-gitops.git"
+              git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git"
               git push origin HEAD:main
             '''
           }
