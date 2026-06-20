@@ -72,15 +72,17 @@ spec:
     stage('Build and Push Image') {
       steps {
         container('kaniko') {
-          sh '''
-            /kaniko/executor \
-              --context "${WORKSPACE}/app" \
-              --dockerfile "${WORKSPACE}/app/Dockerfile" \
-              --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
-              --insecure \
-              --skip-tls-verify \
-              --cache=false
-          '''
+          dir("${WORKSPACE}") {
+            sh '''
+              /kaniko/executor \
+                --context "${WORKSPACE}/app" \
+                --dockerfile "${WORKSPACE}/app/Dockerfile" \
+                --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                --insecure \
+                --skip-tls-verify \
+                --cache=false
+            '''
+          }
         }
       }
     }
@@ -88,10 +90,12 @@ spec:
     stage('Lint Helm Chart') {
       steps {
         container('tools') {
-          sh '''
-            helm lint "${CHART_PATH}"
-            helm template myapp "${CHART_PATH}" -n myapp
-          '''
+          dir("${WORKSPACE}") {
+            sh '''
+              helm lint "${CHART_PATH}"
+              helm template myapp "${CHART_PATH}" -n myapp
+            '''
+          }
         }
       }
     }
@@ -119,6 +123,8 @@ spec:
           dir("${WORKSPACE}") {
             withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GH_APP_ID', passwordVariable: 'GH_APP_TOKEN')]) {
               sh '''
+                apk add --no-cache git
+
                 git config user.email "jenkins@example.local"
                 git config user.name "Jenkins CI"
 
@@ -134,12 +140,13 @@ spec:
 
                 git remote set-url origin "https://x-access-token:${GH_APP_TOKEN}@github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git"
                 git push origin HEAD:main
-              '''s
+              '''
             }
           }
         }
       }
     }
+  }
 
   post {
     success {
