@@ -1,0 +1,94 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-stack
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: monitoring-stack
+    app.kubernetes.io/part-of: floci-jenkins-helm-argocd-gitops
+spec:
+  project: monitoring
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 86.2.3
+    helm:
+      releaseName: monitoring
+      values: |
+        fullnameOverride: monitoring
+
+        grafana:
+          enabled: true
+          adminUser: admin
+          adminPassword: admin123
+          defaultDashboardsEnabled: true
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - grafana.127.0.0.1.nip.io
+            path: /
+            pathType: Prefix
+
+        prometheus:
+          enabled: true
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - prometheus.127.0.0.1.nip.io
+            paths:
+              - /
+            pathType: Prefix
+          prometheusSpec:
+            retention: 7d
+            scrapeInterval: 30s
+            evaluationInterval: 30s
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+
+        alertmanager:
+          enabled: true
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - alertmanager.127.0.0.1.nip.io
+            paths:
+              - /
+            pathType: Prefix
+          alertmanagerSpec:
+            retention: 120h
+
+        kubeControllerManager:
+          enabled: false
+
+        kubeScheduler:
+          enabled: false
+
+        kubeEtcd:
+          enabled: false
+
+        defaultRules:
+          create: true
+          rules:
+            etcd: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            kubeControllerManager: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
