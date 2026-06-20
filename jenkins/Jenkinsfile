@@ -47,12 +47,17 @@ spec:
     }
   }
 
+  options {
+    skipDefaultCheckout(true)
+  }
+
   environment {
     IMAGE_REPOSITORY = 'host.docker.internal:5100/floci-cicd/gitops-demo-app'
     APP_NAME = 'gitops-demo-app'
     CHART_PATH = 'helm/myapp'
     GITHUB_REPO = 'skcloud2007/floci-jenkins-helm-argocd-gitops'
     GIT_BRANCH = 'main'
+    SKIP_PIPELINE = 'false'
   }
 
   stages {
@@ -62,16 +67,61 @@ spec:
       }
     }
 
-    stage('Prepare Tag') {
+    stage('Detect CI Deploy Commit') {
       steps {
-        script {
-          env.IMAGE_TAG = "build-${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
-          echo "Image tag: ${env.IMAGE_TAG}"
+        container('tools') {
+          dir("${WORKSPACE}") {
+            script {
+              sh '''
+                apk add --no-cache git
+                git config --global --add safe.directory "${WORKSPACE}"
+              '''
+
+              def lastCommitMessage = sh(
+                script: "git log -1 --pretty=%s",
+                returnStdout: true
+              ).trim()
+
+              echo "Last commit message: ${lastCommitMessage}"
+
+              if (lastCommitMessage.startsWith("ci: deploy") || lastCommitMessage.contains("[skip ci]")) {
+                env.SKIP_PIPELINE = "true"
+                echo "Skipping pipeline because this is Jenkins' own GitOps deployment commit."
+              } else {
+                env.SKIP_PIPELINE = "false"
+                echo "Normal source/config change detected. Pipeline will continue."
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Prepare Tag') {
+      when {
+        expression { env.SKIP_PIPELINE != 'true' }
+      }
+      steps {
+        container('tools') {
+          dir("${WORKSPACE}") {
+            script {
+              def shortCommit = sh(
+                script: "git rev-parse --short HEAD",
+                returnStdout: true
+              ).trim()
+
+              env.IMAGE_TAG = "build-${env.BUILD_NUMBER}-${shortCommit}"
+              echo "Image tag: ${env.IMAGE_TAG}"
+            }
+          }
         }
       }
     }
 
     stage('Build and Push Image') {
+      when {
+        expression { env.SKIP_PIPELINE != 'true' }
+      }
       steps {
         container('kaniko') {
           dir("${WORKSPACE}") {
@@ -90,6 +140,9 @@ spec:
     }
 
     stage('Lint Helm Chart') {
+      when {
+        expression { env.SKIP_PIPELINE != 'true' }
+      }
       steps {
         container('tools') {
           dir("${WORKSPACE}") {
@@ -103,6 +156,9 @@ spec:
     }
 
     stage('Update Helm Values') {
+      when {
+        expression { env.SKIP_PIPELINE != 'true' }
+      }
       steps {
         container('tools') {
           dir("${WORKSPACE}") {
@@ -120,6 +176,9 @@ spec:
     }
 
     stage('Commit GitOps Change') {
+      when {
+        expression { env.SKIP_PIPELINE != 'true' }
+      }
       steps {
         container('tools') {
           dir("${WORKSPACE}") {
@@ -161,7 +220,7 @@ spec:
                 fi
 
                 git add helm/myapp/values.yaml
-                git commit -m "ci: deploy ${IMAGE_TAG}"
+                git commit -m "ci: deploy ${IMAGE_TAG} [skip ci]"
                 git push origin HEAD:"${GIT_BRANCH}"
               '''
             }
@@ -173,7 +232,7 @@ spec:
 
   post {
     success {
-      echo "Pipeline completed. Argo CD should sync the new image tag automatically."
+      echo "Pipeline completed successfully."
     }
     failure {
       echo "Pipeline failed. Check Jenkins stage logs."
