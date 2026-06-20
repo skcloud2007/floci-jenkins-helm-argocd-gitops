@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: floci-registry-docker-config
+  namespace: jenkins
+data:
+  config.json: |
+    {
+      "auths": {
+        "host.docker.internal:5100": {}
+      }
+    }
