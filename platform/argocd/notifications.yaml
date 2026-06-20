@@ -1,0 +1,284 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-notifications-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  context: |
+    argocdUrl: http://argocd.127.0.0.1.nip.io
+
+  service.webhook.slack_webhook: |
+    url: $slack_webhook_url
+    headers:
+      - name: Content-Type
+        value: application/json
+    retryMax: 3
+
+  template.argocd-deployed: |
+    webhook:
+      slack_webhook:
+        method: POST
+        body: |
+          {
+            "text": "Argo CD deployment succeeded for {{.app.metadata.name}}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "✅ Argo CD Deployment Succeeded",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*{{.app.metadata.name}}* is synced and healthy. Argo CD completed the GitOps deployment successfully."
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Application:*\\n{{.app.metadata.name}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Project:*\\n{{.app.spec.project}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Sync Status:*\\n{{.app.status.sync.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health:*\\n{{.app.status.health.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Namespace:*\\n{{.app.spec.destination.namespace}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Cluster:*\\nlocal-kind"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Revision:*\\n`{{.app.status.sync.revision}}`"
+                }
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "Validated by Argo CD sync and PostSync smoke test workflow."
+                  }
+                ]
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "style": "primary",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "Open Argo CD App",
+                      "emoji": true
+                    },
+                    "url": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "Open Application",
+                      "emoji": true
+                    },
+                    "url": "http://myapp.127.0.0.1.nip.io"
+                  }
+                ]
+              }
+            ]
+          }
+
+  template.argocd-sync-failed: |
+    webhook:
+      slack_webhook:
+        method: POST
+        body: |
+          {
+            "text": "Argo CD sync failed for {{.app.metadata.name}}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "❌ Argo CD Sync Failed",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*{{.app.metadata.name}}* failed during Argo CD sync. Review the application details and Kubernetes events."
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Application:*\\n{{.app.metadata.name}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Project:*\\n{{.app.spec.project}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Sync Status:*\\n{{.app.status.sync.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health:*\\n{{.app.status.health.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Namespace:*\\n{{.app.spec.destination.namespace}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Cluster:*\\nlocal-kind"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Revision:*\\n`{{.app.status.sync.revision}}`"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "style": "danger",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "Open Argo CD App",
+                      "emoji": true
+                    },
+                    "url": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}"
+                  }
+                ]
+              }
+            ]
+          }
+
+  template.argocd-health-degraded: |
+    webhook:
+      slack_webhook:
+        method: POST
+        body: |
+          {
+            "text": "Argo CD application health degraded for {{.app.metadata.name}}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "⚠️ Argo CD Health Degraded",
+                  "emoji": true
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*{{.app.metadata.name}}* is no longer healthy. Check pods, rollout status, and events in the target namespace."
+                }
+              },
+              {
+                "type": "divider"
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Application:*\\n{{.app.metadata.name}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Project:*\\n{{.app.spec.project}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Sync Status:*\\n{{.app.status.sync.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Health:*\\n{{.app.status.health.status}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Namespace:*\\n{{.app.spec.destination.namespace}}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Cluster:*\\nlocal-kind"
+                  }
+                ]
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "style": "danger",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "Open Argo CD App",
+                      "emoji": true
+                    },
+                    "url": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}"
+                  }
+                ]
+              }
+            ]
+          }
+
+  trigger.on-deployed: |
+    - when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+      oncePer: app.status.operationState.syncResult.revision
+      send: [argocd-deployed]
+
+  trigger.on-sync-failed: |
+    - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+      oncePer: app.status.operationState.syncResult.revision
+      send: [argocd-sync-failed]
+
+  trigger.on-health-degraded: |
+    - when: app.status.health.status == 'Degraded'
+      oncePer: app.status.sync.revision
+      send: [argocd-health-degraded]

@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: gitops-demo-app
   namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack_webhook: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.slack_webhook: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.slack_webhook: ""
   labels:
     app.kubernetes.io/name: gitops-demo-app
     app.kubernetes.io/part-of: floci-jenkins-helm-argocd-gitops
