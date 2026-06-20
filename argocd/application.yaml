@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-demo-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: gitops-demo-app
+    app.kubernetes.io/part-of: floci-jenkins-helm-argocd-gitops
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/skcloud2007/floci-jenkins-helm-argocd-gitops.git
+    targetRevision: main
+    path: helm/myapp
+
+    helm:
+      releaseName: myapp
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: myapp
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
