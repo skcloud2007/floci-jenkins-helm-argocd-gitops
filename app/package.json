@@ -1,0 +1,12 @@
+{
+  "name": "gitops-demo-app",
+  "version": "1.0.0",
+  "description": "Sample app for Jenkins, Floci ECR, Helm, and Argo CD GitOps pipeline",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "4.19.2"
+  }
+}
