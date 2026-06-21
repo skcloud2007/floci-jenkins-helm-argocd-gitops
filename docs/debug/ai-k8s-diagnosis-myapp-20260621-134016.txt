@@ -1,0 +1,66 @@
+===== AI Kubernetes Diagnosis =====
+Date: Sun Jun 21 13:40:16 IST 2026
+Namespace: myapp
+Backend: ollama
+Model: llama3.2:3b
+
+===== Kubernetes Objects =====
+NAME                    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES                                                                  SELECTOR
+deployment.apps/myapp   2/2     2            2           17h   myapp        host.docker.internal:5100/floci-cicd/gitops-demo-app:build-26-eef4301   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp
+
+NAME                               DESIRED   CURRENT   READY   AGE   CONTAINERS   IMAGES                                                                  SELECTOR
+replicaset.apps/myapp-57dcc766f6   2         2         2       12h   myapp        host.docker.internal:5100/floci-cicd/gitops-demo-app:build-26-eef4301   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp,pod-template-hash=57dcc766f6
+replicaset.apps/myapp-76cfd8db7b   0         0         0       13h   myapp        host.docker.internal:5100/floci-cicd/gitops-demo-app:build-25-e5921c7   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp,pod-template-hash=76cfd8db7b
+replicaset.apps/myapp-79b66dc968   0         0         0       14h   myapp        host.docker.internal:5100/floci-cicd/gitops-demo-app:build-23-d5efd94   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp,pod-template-hash=79b66dc968
+replicaset.apps/myapp-c57bc76b4    0         0         0       13h   myapp        host.docker.internal:5100/floci-cicd/gitops-demo-app:build-24-c68d7c3   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp,pod-template-hash=c57bc76b4
+
+NAME                         READY   STATUS      RESTARTS   AGE   IP            NODE                              NOMINATED NODE   READINESS GATES
+pod/myapp-57dcc766f6-cxn29   1/1     Running     0          12h   10.244.0.90   floci-cicd-gitops-control-plane   <none>           <none>
+pod/myapp-57dcc766f6-qr9lz   1/1     Running     0          12h   10.244.0.89   floci-cicd-gitops-control-plane   <none>           <none>
+pod/myapp-smoke-test-wvfdj   0/1     Completed   0          12h   10.244.0.97   floci-cicd-gitops-control-plane   <none>           <none>
+
+NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE   SELECTOR
+service/myapp   ClusterIP   10.96.71.177   <none>        80/TCP    17h   app.kubernetes.io/instance=myapp,app.kubernetes.io/name=myapp
+
+NAME                              CLASS   HOSTS                    ADDRESS     PORTS   AGE
+ingress.networking.k8s.io/myapp   nginx   myapp.127.0.0.1.nip.io   localhost   80      17h
+
+NAME                         STATUS     COMPLETIONS   DURATION   AGE   CONTAINERS   IMAGES                   SELECTOR
+job.batch/myapp-smoke-test   Complete   1/1           3s         12h   smoke-test   curlimages/curl:8.11.1   batch.kubernetes.io/controller-uid=0f3fc2c5-28fe-4cc1-a84f-b4e01e38f1be
+
+===== Recent Events =====
+
+===== Pod Logs =====
+
+----- Pod: myapp-57dcc766f6-cxn29 -----
+
+> gitops-demo-app@1.0.0 start
+> node src/server.js
+
+gitops-demo-app listening on port 3000
+
+----- Pod: myapp-57dcc766f6-qr9lz -----
+
+> gitops-demo-app@1.0.0 start
+> node src/server.js
+
+gitops-demo-app listening on port 3000
+
+----- Pod: myapp-smoke-test-wvfdj -----
+Running Argo CD PostSync smoke test...
+Target: http://myapp.myapp.svc.cluster.local:80/healthz
+{"status":"ok"}
+Smoke test passed.
+
+===== K8sGPT Analysis =====
+AI Provider: ollama
+
+0: ConfigMap myapp/kube-root-ca.crt()
+- Error: ConfigMap kube-root-ca.crt is not used by any pods in the namespace
+Error: The ConfigMap kube-root-ca.crt is not being used by any pods in the namespace, which may cause issues with TLS connections.
+
+Solution:
+1. Check if the ConfigMap is correctly created and deployed.
+2. Verify that no pod uses the kube-root-ca.crt from this ConfigMap.
+3. If necessary, remove the ConfigMap or update its usage in a pod.
+
