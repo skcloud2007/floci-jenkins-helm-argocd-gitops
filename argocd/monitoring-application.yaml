@@ -94,43 +94,52 @@ spec:
                     username: "Kubernetes Alertmanager"
                     icon_emoji: ":rotating_light:"
                     send_resolved: true
+                    link_names: true
+                    mrkdwn_in:
+                      - pretext
+                      - text
+                      - fields
+                    color: '{{ if eq .Status "resolved" }}good{{ else if eq .CommonLabels.severity "critical" }}danger{{ else if eq .CommonLabels.severity "warning" }}warning{{ else }}#439FE0{{ end }}'
                     title: '{{ if eq .Status "firing" }}🚨 Kubernetes Alert Firing{{ else }}✅ Kubernetes Alert Resolved{{ end }}'
                     title_link: "http://alertmanager.127.0.0.1.nip.io"
-                    color: '{{ if eq .Status "resolved" }}good{{ else if eq .CommonLabels.severity "critical" }}danger{{ else if eq .CommonLabels.severity "warning" }}warning{{ else }}#439FE0{{ end }}'
-                    pretext: '{{ if eq .Status "firing" }}Production-style Kubernetes alert detected in the local GitOps platform.{{ else }}Kubernetes alert has recovered in the local GitOps platform.{{ end }}'
+                    pretext: '{{ if eq .Status "firing" }}*Production-style Kubernetes alert detected in local GitOps platform*{{ else }}*Kubernetes alert recovered in local GitOps platform*{{ end }}'
                     text: |-
-                      *Alert:* {{ .CommonLabels.alertname }}
+                      *{{ .CommonLabels.alertname }}* is `{{ .Status | toUpper }}`.
 
-                      *Summary:* {{ .CommonAnnotations.summary }}
-                      *Description:* {{ .CommonAnnotations.description }}
+                      {{ .CommonAnnotations.summary }}
 
-                      *Runbook:* http://grafana.127.0.0.1.nip.io
+                      _{{ .CommonAnnotations.description }}_
+                    fallback: '{{ .CommonLabels.alertname }} - {{ .Status }} - {{ .CommonLabels.severity }}'
                     footer: "Prometheus Alertmanager • Jenkins + Argo CD + Helm + kind"
                     fields:
-                      - title: "Status"
-                        value: "{{ .Status | toUpper }}"
-                        short: true
-                      - title: "Severity"
-                        value: "{{ .CommonLabels.severity }}"
-                        short: true
-                      - title: "Namespace"
-                        value: "{{ .CommonLabels.namespace }}"
-                        short: true
-                      - title: "Service"
-                        value: "{{ .CommonLabels.service }}"
-                        short: true
-                      - title: "Team"
-                        value: "{{ .CommonLabels.team }}"
-                        short: true
                       - title: "Environment"
                         value: "local-kind"
                         short: true
-                      - title: "Prometheus Alerts"
-                        value: "http://prometheus.127.0.0.1.nip.io/alerts"
-                        short: false
-                      - title: "Alertmanager"
-                        value: "http://alertmanager.127.0.0.1.nip.io"
-                        short: false
+                      - title: "Severity"
+                        value: "`{{ .CommonLabels.severity }}`"
+                        short: true
+                      - title: "Namespace"
+                        value: "`{{ .CommonLabels.namespace }}`"
+                        short: true
+                      - title: "Service"
+                        value: "`{{ .CommonLabels.service }}`"
+                        short: true
+                      - title: "Team"
+                        value: "`{{ .CommonLabels.team }}`"
+                        short: true
+                      - title: "Status"
+                        value: "`{{ .Status | toUpper }}`"
+                        short: true
+                    actions:
+                      - type: button
+                        text: "Open Grafana"
+                        url: "http://grafana.127.0.0.1.nip.io"
+                      - type: button
+                        text: "Open Prometheus"
+                        url: "http://prometheus.127.0.0.1.nip.io/alerts"
+                      - type: button
+                        text: "Open Alertmanager"
+                        url: "http://alertmanager.127.0.0.1.nip.io"
 
           alertmanagerSpec:
             retention: 120h
