@@ -2,8 +2,11 @@
 set -euo pipefail
 
 NAMESPACE="${1:-myapp}"
+ALERT_NAME="${2:-ManualAIDiagnosis}"
+SEVERITY="${3:-info}"
 BACKEND="${K8SGPT_BACKEND:-ollama}"
 MODEL="${K8SGPT_MODEL:-llama3.2:3b}"
+ENVIRONMENT="${ENVIRONMENT:-local-kind}"
 REPORT_DIR="docs/debug"
 REPORT_FILE="${REPORT_DIR}/ai-k8s-diagnosis-${NAMESPACE}-$(date +%Y%m%d-%H%M%S).txt"
 
@@ -11,6 +14,8 @@ mkdir -p "$REPORT_DIR"
 
 echo "Running AI Kubernetes diagnosis..."
 echo "Namespace: ${NAMESPACE}"
+echo "Alert: ${ALERT_NAME}"
+echo "Severity: ${SEVERITY}"
 echo "Backend: ${BACKEND}"
 echo "Model: ${MODEL}"
 
@@ -18,39 +23,69 @@ echo "Model: ${MODEL}"
   echo "===== AI Kubernetes Diagnosis ====="
   echo "Date: $(date)"
   echo "Namespace: ${NAMESPACE}"
+  echo "Alert: ${ALERT_NAME}"
+  echo "Severity: ${SEVERITY}"
+  echo "Environment: ${ENVIRONMENT}"
   echo "Backend: ${BACKEND}"
   echo "Model: ${MODEL}"
   echo
 
-  echo "===== Kubernetes Objects ====="
-  kubectl get deploy,rs,pods,svc,ingress,job -n "$NAMESPACE" -o wide || true
+  echo "===== Deployment Health ====="
+  kubectl get deploy -n "$NAMESPACE" \
+    -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,DESIRED:.spec.replicas,AVAILABLE:.status.availableReplicas,UPDATED:.status.updatedReplicas' \
+    2>/dev/null || true
   echo
 
-  echo "===== Recent Events ====="
-  kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' | tail -40 || true
+  echo "===== Pod Health ====="
+  kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || true
+  echo
+
+  echo "===== Pod Restart Summary ====="
+  kubectl get pods -n "$NAMESPACE" \
+    -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,RESTARTS:.status.containerStatuses[*].restartCount,READY:.status.containerStatuses[*].ready' \
+    2>/dev/null || true
   echo
 
   echo "===== Unhealthy Pods ====="
-  kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $1 " " $3}' || true
+  unhealthy="$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | awk '$3!="Running" && $3!="Completed" {print $0}' || true)"
+  if [ -n "$unhealthy" ]; then
+    echo "$unhealthy"
+  else
+    echo "No unhealthy pods detected."
+  fi
   echo
 
-  echo "===== Pod Logs ====="
-  for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}' | head -5); do
-    echo
-    echo "----- Pod: ${pod} -----"
-    kubectl logs "$pod" -n "$NAMESPACE" --tail=80 --all-containers=true 2>/dev/null || true
-  done
+  echo "===== Warning Events ====="
+  events="$(kubectl get events -n "$NAMESPACE" --field-selector type!=Normal --sort-by='.lastTimestamp' 2>/dev/null | tail -30 || true)"
+  if [ -n "$events" ]; then
+    echo "$events"
+  else
+    echo "No warning events found."
+  fi
+  echo
+
+  echo "===== Recent Pod Logs ====="
+  pods="$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | awk '{print $1}' | head -5 || true)"
+  if [ -n "$pods" ]; then
+    for pod in $pods; do
+      echo
+      echo "----- Pod: ${pod} -----"
+      kubectl logs "$pod" -n "$NAMESPACE" --tail=60 --all-containers=true 2>/dev/null || true
+    done
+  else
+    echo "No pods found."
+  fi
   echo
 
   echo "===== K8sGPT Analysis ====="
-  k8sgpt analyze --namespace "$NAMESPACE" --explain --backend "$BACKEND" || true
+  k8sgpt analyze --namespace "$NAMESPACE" --explain --backend "$BACKEND" 2>/dev/null || true
 } | tee "$REPORT_FILE"
 
 SLACK_WEBHOOK_URL="$(kubectl get secret alertmanager-slack-webhook \
   -n monitoring \
   -o jsonpath='{.data.webhook-url}' | base64 -d)"
 
-export NAMESPACE BACKEND MODEL REPORT_FILE
+export NAMESPACE ALERT_NAME SEVERITY BACKEND MODEL ENVIRONMENT REPORT_FILE
 
 PAYLOAD="$(python3 - <<'PY'
 import json
@@ -59,13 +94,16 @@ import re
 from pathlib import Path
 
 namespace = os.environ["NAMESPACE"]
+alert_name = os.environ["ALERT_NAME"]
+severity = os.environ["SEVERITY"]
 backend = os.environ["BACKEND"]
 model = os.environ["MODEL"]
+environment = os.environ["ENVIRONMENT"]
 report_file = os.environ["REPORT_FILE"]
 
 report = Path(report_file).read_text(errors="ignore")
 
-def extract_section(title, next_title=None):
+def section(title, next_title=None):
     start = f"===== {title} ====="
     if start not in report:
         return ""
@@ -76,43 +114,111 @@ def extract_section(title, next_title=None):
             part = part.split(end, 1)[0]
     return part.strip()
 
-objects = extract_section("Kubernetes Objects", "Recent Events")
-events = extract_section("Recent Events", "Unhealthy Pods")
-unhealthy = extract_section("Unhealthy Pods", "Pod Logs")
-analysis = extract_section("K8sGPT Analysis")
+deployment_health = section("Deployment Health", "Pod Health")
+pod_health = section("Pod Health", "Pod Restart Summary")
+restart_summary = section("Pod Restart Summary", "Unhealthy Pods")
+unhealthy = section("Unhealthy Pods", "Warning Events")
+events = section("Warning Events", "Recent Pod Logs")
+logs = section("Recent Pod Logs", "K8sGPT Analysis")
+k8sgpt = section("K8sGPT Analysis")
 
-if not unhealthy:
-    unhealthy = "No unhealthy pods detected."
+noise_patterns = [
+    "kube-root-ca.crt",
+    "ConfigMap kube-root-ca.crt is not used",
+    "not used by any pods in the namespace",
+]
 
-if not analysis:
-    analysis = "No active K8sGPT findings were returned for this namespace."
+def strip_noise(text):
+    if not text.strip():
+        return ""
+    if all(p.lower() in text.lower() for p in ["kube-root-ca.crt", "not used"]):
+        return ""
+    lines = []
+    for line in text.splitlines():
+        if any(p.lower() in line.lower() for p in noise_patterns):
+            continue
+        lines.append(line)
+    cleaned = "\n".join(lines).strip()
+    if cleaned.lower() in {"ai provider: ollama", "ai provider: openai"}:
+        return ""
+    return cleaned
 
-events_short = "\n".join(events.splitlines()[-8:]) if events else "No recent events found."
-analysis_short = analysis[:1800]
-events_short = events_short[:1200]
-unhealthy_short = unhealthy[:800]
+k8sgpt_clean = strip_noise(k8sgpt)
 
-lower = f"{analysis} {events} {unhealthy}".lower()
+combined = f"{deployment_health}\n{pod_health}\n{restart_summary}\n{unhealthy}\n{events}\n{logs}\n{k8sgpt_clean}".lower()
 
-if "imagepullbackoff" in lower or "errimagepull" in lower:
-    next_action = "Check image repository, tag, registry reachability, and imagePullSecrets. Verify Jenkins pushed the image and Argo CD deployed the correct tag."
-elif "crashloopbackoff" in lower:
-    next_action = "Check the failing container logs, recent app changes, missing environment variables, and config/secret references. Roll back the last GitOps change if needed."
-elif "readiness" in lower or "probe" in lower:
-    next_action = "Check readiness/liveness probe paths, app startup time, service port mapping, and recent deployment changes."
-elif "0/1" in lower or "not ready" in lower:
-    next_action = "Inspect pod status, events, and rollout history. Confirm the latest image is healthy and Kubernetes probes are passing."
+issue_keywords = {
+    "ImagePullBackOff": ["imagepullbackoff", "errimagepull", "pull access denied", "manifest unknown"],
+    "CrashLoopBackOff": ["crashloopbackoff", "back-off restarting failed container"],
+    "ProbeFailure": ["readiness probe failed", "liveness probe failed", "probe failed"],
+    "UnavailableReplicas": ["<none>", "0/", "unavailable", "no available replicas"],
+    "ConfigOrSecretIssue": ["secret not found", "configmap not found", "couldn't find key", "not found"],
+    "SchedulingIssue": ["failedscheduling", "insufficient cpu", "insufficient memory", "node(s) had taint"],
+}
+
+issue_type = "No active issue detected"
+for name, keys in issue_keywords.items():
+    if any(k in combined for k in keys):
+        issue_type = name
+        break
+
+has_unhealthy = unhealthy.strip() and "No unhealthy pods detected." not in unhealthy
+has_warning_events = events.strip() and "No warning events found." not in events
+has_real_k8sgpt = bool(k8sgpt_clean)
+
+if issue_type != "No active issue detected" or has_unhealthy or has_warning_events or has_real_k8sgpt:
+    verdict = "Needs Attention"
+    header_emoji = "🚨" if severity == "critical" else "⚠️"
+    color_word = "warning"
 else:
-    next_action = "Review the K8sGPT findings, recent events, pod logs, and the latest Argo CD/Jenkins deployment revision."
+    verdict = "Healthy"
+    header_emoji = "✅"
+    color_word = "good"
+
+if issue_type == "ImagePullBackOff":
+    next_action = "Verify the image tag in Helm values, confirm Jenkins pushed the image to Floci registry, and check Kubernetes can pull from host.docker.internal:5100."
+elif issue_type == "CrashLoopBackOff":
+    next_action = "Inspect the latest container logs, check recent code/config changes, and roll back the last GitOps deployment if the new image is broken."
+elif issue_type == "ProbeFailure":
+    next_action = "Check readiness/liveness probe paths, service targetPort, app startup time, and whether /healthz and /readyz return HTTP 200."
+elif issue_type == "UnavailableReplicas":
+    next_action = "Check deployment rollout status, pod scheduling, image pull status, and recent Argo CD sync revision."
+elif issue_type == "ConfigOrSecretIssue":
+    next_action = "Verify referenced ConfigMaps, Secrets, environment variables, and volume mounts exist in the namespace."
+elif issue_type == "SchedulingIssue":
+    next_action = "Check node capacity, pod resource requests/limits, taints, tolerations, and pending pod events."
+elif verdict == "Healthy":
+    next_action = "No immediate action required. Namespace appears healthy. Continue monitoring dashboards and alerts."
+else:
+    next_action = "Review the evidence below, compare with the latest Jenkins build and Argo CD revision, then inspect affected pod logs/events."
+
+def trim(text, limit):
+    text = text.strip()
+    if not text:
+        return "None"
+    return text[:limit]
+
+if verdict == "Healthy":
+    ai_summary = "No actionable Kubernetes issue detected. K8sGPT only returned non-critical/noisy findings or no findings."
+else:
+    ai_summary = k8sgpt_clean or "K8sGPT did not return a specific root cause. Evidence from Kubernetes events/pods suggests investigation is required."
+
+evidence = []
+if has_unhealthy:
+    evidence.append(f"*Unhealthy Pods:*\n```{trim(unhealthy, 900)}```")
+if has_warning_events:
+    evidence.append(f"*Warning Events:*\n```{trim(events, 1200)}```")
+if not evidence:
+    evidence.append("*Cluster Evidence:*\n```No unhealthy pods or warning events found in this namespace.```")
 
 payload = {
-    "text": f"AI Kubernetes Diagnosis for {namespace}",
+    "text": f"{header_emoji} AI Kubernetes Diagnosis - {namespace} - {verdict}",
     "blocks": [
         {
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "🤖 AI Kubernetes Diagnosis",
+                "text": f"{header_emoji} AI Kubernetes Diagnosis",
                 "emoji": True
             }
         },
@@ -120,18 +226,20 @@ payload = {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*AI-assisted Kubernetes troubleshooting summary for* `{namespace}`"
+                "text": f"*{namespace}* analysis completed with verdict: *{verdict}*"
             }
         },
         {
             "type": "section",
             "fields": [
+                {"type": "mrkdwn", "text": f"*Alert:*\n`{alert_name}`"},
+                {"type": "mrkdwn", "text": f"*Verdict:*\n`{verdict}`"},
                 {"type": "mrkdwn", "text": f"*Namespace:*\n`{namespace}`"},
-                {"type": "mrkdwn", "text": "*Environment:*\n`local-kind`"},
+                {"type": "mrkdwn", "text": f"*Severity:*\n`{severity}`"},
+                {"type": "mrkdwn", "text": f"*Issue Type:*\n`{issue_type}`"},
+                {"type": "mrkdwn", "text": f"*Environment:*\n`{environment}`"},
                 {"type": "mrkdwn", "text": f"*AI Backend:*\n`{backend}`"},
-                {"type": "mrkdwn", "text": f"*Model:*\n`{model}`"},
-                {"type": "mrkdwn", "text": "*Source:*\n`K8sGPT + kubectl`"},
-                {"type": "mrkdwn", "text": "*Report:*\n`local file generated`"}
+                {"type": "mrkdwn", "text": f"*Model:*\n`{model}`"}
             ]
         },
         {"type": "divider"},
@@ -139,14 +247,14 @@ payload = {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*🧠 AI Summary / Findings*\n```{analysis_short}```"
+                "text": f"*🧠 Smart Summary*\n```{trim(ai_summary, 1600)}```"
             }
         },
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*📌 Evidence*\n*Unhealthy Pods:*\n```{unhealthy_short}```\n*Recent Events:*\n```{events_short}```"
+                "text": "*📌 Evidence*\n" + "\n".join(evidence)
             }
         },
         {
@@ -181,7 +289,7 @@ payload = {
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"Generated by *K8sGPT + Ollama* • Report saved locally: `{report_file}`"
+                    "text": f"K8sGPT + Ollama • Report: `{report_file}`"
                 }
             ]
         }
@@ -201,4 +309,4 @@ unset SLACK_WEBHOOK_URL
 
 echo
 echo "Report saved: ${REPORT_FILE}"
-echo "AI diagnosis posted to Slack #skm_alerts."
+echo "Smart AI diagnosis posted to Slack #skm_alerts."
